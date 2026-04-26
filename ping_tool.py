@@ -59,10 +59,10 @@ class PingApp:
 
         ttk.Label(input_frame, text="Size (bytes):").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
         self.size_var = tk.StringVar(value="32")
-        size_combo = ttk.Combobox(input_frame, textvariable=self.size_var, width=6,
-                                  values=["32", "64", "128", "256", "512", "1024", "1472"],
-                                  state="readonly")
-        size_combo.grid(row=1, column=1, padx=(0, 16), pady=(6, 0), sticky="w")
+        size_entry = ttk.Entry(input_frame, textvariable=self.size_var, width=8,
+                               font=("Segoe UI", 10))
+        size_entry.grid(row=1, column=1, padx=(0, 16), pady=(6, 0), sticky="w")
+        ttk.Label(input_frame, text="(32 – 65535)").grid(row=1, column=2, sticky="w", pady=(6, 0))
 
         # Buttons
         btn_frame = tk.Frame(self.root, bg="#1e1e2e")
@@ -154,8 +154,10 @@ class PingApp:
 
         try:
             size = int(self.size_var.get())
+            if not (32 <= size <= 65535):
+                raise ValueError
         except ValueError:
-            self.status_var.set("Invalid size value.")
+            self.status_var.set("Size must be between 32 and 65535 bytes.")
             return
 
         self.stop_flag = False
