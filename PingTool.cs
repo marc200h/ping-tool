@@ -622,6 +622,7 @@ public class NetworkScanForm : Form
     {
         this.addCallback = addCallback;
         BuildUI();
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
     }
 
     private void BuildUI()
