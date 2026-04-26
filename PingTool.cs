@@ -30,6 +30,7 @@ public class PingTool : Form
 
     private readonly List<DeviceStats> devices = new List<DeviceStats>();
     private System.Windows.Forms.Timer refreshTimer;
+    private static readonly object _logLock = new object();
 
     private TextBox      ipEntry;
     private Button       addBtn, removeBtn, scanWindowBtn;
@@ -406,6 +407,29 @@ public class PingTool : Form
         scanWindowBtn.Enabled  = true;
     }
 
+    // ── Missed-ping log ──────────────────────────────────────────────────────
+
+    private static void LogMissedPing(string ip)
+    {
+        try
+        {
+            string date    = DateTime.Now.ToString("yyyy-MM-dd");
+            string time    = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string dir     = Path.GetDirectoryName(Application.ExecutablePath);
+            string path    = Path.Combine(dir, "missed_pings_" + date + ".csv");
+            lock (_logLock)
+            {
+                bool newFile = !File.Exists(path);
+                using (var sw = new StreamWriter(path, append: true))
+                {
+                    if (newFile) sw.WriteLine("Timestamp,IP Address");
+                    sw.WriteLine(time + "," + ip);
+                }
+            }
+        }
+        catch { }
+    }
+
     // ── Ping loop ────────────────────────────────────────────────────────────
 
     private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size, bool dontFrag)
@@ -432,8 +456,9 @@ public class PingTool : Form
                     }
                     else { d.LastOnline = false; }
                 }
+                if (!d.LastOnline) LogMissedPing(d.IP);
             }
-            catch { lock (d.Lock) { d.Sent++; d.LastOnline = false; } }
+            catch { lock (d.Lock) { d.Sent++; d.LastOnline = false; } LogMissedPing(d.IP); }
 
             if (!continuous && seq >= count) { d.StopFlag = true; break; }
 

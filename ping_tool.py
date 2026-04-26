@@ -3,6 +3,7 @@ from tkinter import ttk, scrolledtext
 import subprocess
 import threading
 import re
+import os
 from datetime import datetime
 
 
@@ -114,6 +115,19 @@ class PingApp:
                                fg="#fab387", font=("Segoe UI", 9), anchor="w", padx=10)
         stats_label.pack(fill=tk.X, padx=20, pady=(0, 10))
 
+    _log_lock = threading.Lock()
+
+    def _log_missed_ping(self, ip):
+        now = datetime.now()
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+        log_path = os.path.join(log_dir, f"missed_pings_{now.strftime('%Y-%m-%d')}.csv")
+        with self._log_lock:
+            write_header = not os.path.exists(log_path)
+            with open(log_path, "a", newline="") as f:
+                if write_header:
+                    f.write("Timestamp,IP Address\n")
+                f.write(f"{now.strftime('%Y-%m-%d %H:%M:%S')},{ip}\n")
+
     def _write(self, text, tag=None):
         self.output.configure(state=tk.NORMAL)
         if tag:
@@ -217,6 +231,7 @@ class PingApp:
             else:
                 line = f"  Request timeout  seq={seq}\n"
                 self.root.after(0, self._write, line, "failure")
+                self._log_missed_ping(ip)
 
             loss = round((sent - received) / sent * 100) if sent else 0
             avg_rtt = round(sum(rtts) / len(rtts)) if rtts else 0
