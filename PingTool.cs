@@ -36,6 +36,7 @@ public class PingTool : Form
     private DataGridView grid;
     private TextBox      timeoutEntry;
     private TextBox      sizeEntry;
+    private CheckBox     dontFragCheck;
     private TrackBar     intervalSlider;
     private Label        intervalValueLabel;
     private ComboBox     countCombo;
@@ -151,6 +152,13 @@ public class PingTool : Form
             Font = new Font("Segoe UI", 9f), AutoSize = true,
             Location = new Point(210, y + 4)
         });
+
+        dontFragCheck = new CheckBox {
+            Text = "Don't Fragment (-f)", ForeColor = FgText, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 10f), AutoSize = true,
+            Location = new Point(330, y + 2), Cursor = Cursors.Hand
+        };
+        Controls.Add(dontFragCheck);
 
         // ── Row 4: Count + Unlimited + Action buttons ────────
         y = 176;
@@ -330,13 +338,14 @@ public class PingTool : Form
         if (!int.TryParse(timeoutEntry.Text.Trim(), out timeout) || timeout < 1) timeout = 1000;
         int size;
         if (!int.TryParse(sizeEntry.Text.Trim(), out size) || size < 32 || size > 65535) size = 32;
+        bool dontFrag  = dontFragCheck.Checked;
         bool continuous = unlimitedCheck.Checked;
         int  count      = continuous ? 0 : int.Parse(countCombo.SelectedItem.ToString());
         int  interval   = intervalSlider.Value;
 
         d.StopFlag   = false;
         var cap      = d;
-        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size))
+        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size, dontFrag))
             { IsBackground = true };
         d.PingThread.Start();
     }
@@ -387,6 +396,7 @@ public class PingTool : Form
         stopBtn.Enabled        = !ready;
         timeoutEntry.Enabled   = ready;
         sizeEntry.Enabled      = ready;
+        dontFragCheck.Enabled  = ready;
         intervalSlider.Enabled = ready;
         unlimitedCheck.Enabled = ready;
         countCombo.Enabled     = ready && !unlimitedCheck.Checked;
@@ -398,10 +408,10 @@ public class PingTool : Form
 
     // ── Ping loop ────────────────────────────────────────────────────────────
 
-    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size)
+    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size, bool dontFrag)
     {
         var    pinger  = new Ping();
-        var    options = new PingOptions { DontFragment = true };
+        var    options = new PingOptions { DontFragment = dontFrag };
         byte[] buffer  = new byte[size];
         int    seq     = 0;
 

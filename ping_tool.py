@@ -63,6 +63,9 @@ class PingApp:
                                font=("Segoe UI", 10))
         size_entry.grid(row=1, column=1, padx=(0, 16), pady=(6, 0), sticky="w")
         ttk.Label(input_frame, text="(32 – 65535)").grid(row=1, column=2, sticky="w", pady=(6, 0))
+        self.no_frag_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(input_frame, text="Don't Fragment (-f)", variable=self.no_frag_var).grid(
+            row=1, column=3, sticky="w", padx=(24, 0), pady=(6, 0))
 
         # Buttons
         btn_frame = tk.Frame(self.root, bg="#1e1e2e")
@@ -164,8 +167,9 @@ class PingApp:
         self.ping_btn.configure(state=tk.DISABLED)
         self.stop_btn.configure(state=tk.NORMAL)
 
+        no_frag = self.no_frag_var.get()
         self.ping_thread = threading.Thread(
-            target=self._run_ping, args=(ip, count, continuous, timeout, size), daemon=True
+            target=self._run_ping, args=(ip, count, continuous, timeout, size, no_frag), daemon=True
         )
         self.ping_thread.start()
 
@@ -173,7 +177,7 @@ class PingApp:
         self.stop_flag = True
         self.status_var.set("Stopping...")
 
-    def _run_ping(self, ip, count, continuous, timeout_ms, size):
+    def _run_ping(self, ip, count, continuous, timeout_ms, size, no_frag):
         sent = 0
         received = 0
         rtts = []
@@ -181,13 +185,18 @@ class PingApp:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         header = f"\n[{timestamp}] Pinging {ip}"
         header += f" (continuous)" if continuous else f" × {count}"
-        header += f"  size={size}B  timeout={timeout_ms}ms\n"
+        header += f"  size={size}B  timeout={timeout_ms}ms"
+        if no_frag:
+            header += "  DF=on"
+        header += "\n"
         self.root.after(0, self._write, header, "header")
 
         seq = 0
         while not self.stop_flag:
             seq += 1
             cmd = ["ping", "-n", "1", "-w", str(timeout_ms), "-l", str(size), ip]
+            if no_frag:
+                cmd.insert(-1, "-f")
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_ms / 1000 + 2)
                 output = result.stdout
