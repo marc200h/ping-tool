@@ -648,7 +648,7 @@ public class NetworkScanForm : Form
             Location    = new Point(112, y - 2), Size = new Size(155, 26),
             BackColor   = BgPanel, ForeColor = FgText,
             BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 11f),
-            Text        = "192.168.1.0/24"
+            Text        = GetLocalCidr()
         };
         cidrEntry.TextChanged += (s, e) => UpdateRangeLabel();
         cidrEntry.KeyDown     += (s, e) => { if (e.KeyCode == Keys.Return) StartScan(); };
@@ -1067,5 +1067,42 @@ public class NetworkScanForm : Form
             SelectionBackColor = selBack, SelectionForeColor = fore,
             Alignment = DataGridViewContentAlignment.MiddleCenter
         };
+    }
+
+    private static string GetLocalCidr()
+    {
+        try
+        {
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel)   continue;
+
+                foreach (UnicastIPAddressInformation addr in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+
+                    byte[] ip   = addr.Address.GetAddressBytes();
+                    byte[] mask = addr.IPv4Mask.GetAddressBytes();
+
+                    if (ip[0] == 169 && ip[1] == 254) continue; // skip link-local
+
+                    int    prefix = 0;
+                    byte[] net    = new byte[4];
+                    for (int i = 0; i < 4; i++)
+                    {
+                        net[i] = (byte)(ip[i] & mask[i]);
+                        byte b = mask[i];
+                        while (b != 0) { prefix += b & 1; b = (byte)(b >> 1); }
+                    }
+
+                    return string.Format("{0}.{1}.{2}.{3}/{4}",
+                        net[0], net[1], net[2], net[3], prefix);
+                }
+            }
+        }
+        catch { }
+        return "192.168.1.0/24";
     }
 }
