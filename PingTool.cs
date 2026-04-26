@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -47,7 +48,7 @@ public class PingTool : Form
     private Label        intervalValueLabel;
     private ComboBox     countCombo;
     private CheckBox     unlimitedCheck;
-    private Button       startBtn, stopBtn, clearBtn;
+    private Button       startBtn, stopBtn, clearBtn, portScanBtn;
     private Label        statusLabel;
 
     private static readonly Color BgDark    = Color.FromArgb(17,  17,  27);
@@ -215,6 +216,16 @@ public class PingTool : Form
         clearBtn.Click += (s, e) => ClearStats();
         Controls.Add(clearBtn);
 
+        portScanBtn = MakeButton("Port Scan", 592, y - 2, ColBlue, BgDark, 88);
+        portScanBtn.Enabled = false;
+        portScanBtn.Click += (s, e) => {
+            if (grid.SelectedRows.Count == 0) return;
+            int idx = grid.SelectedRows[0].Index;
+            if (idx >= 0 && idx < devices.Count)
+                new PortScanForm(devices[idx].IP).Show(this);
+        };
+        Controls.Add(portScanBtn);
+
         // ── Status bar ───────────────────────────────────────
         statusLabel = new Label {
             Text = "No devices added.", ForeColor = FgDim, BackColor = BgDark,
@@ -261,7 +272,8 @@ public class PingTool : Form
         AddCol(grid, "Loss %",     "loss",      80);
         AddCol(grid, "Avg RTT",    "avgrtt",    90);
 
-        grid.CellFormatting += OnCellFormatting;
+        grid.CellFormatting    += OnCellFormatting;
+        grid.SelectionChanged  += (s, e) => portScanBtn.Enabled = grid.SelectedRows.Count > 0;
         Controls.Add(grid);
         Resize += (s, e) => RelayoutDynamic();
     }
@@ -1104,5 +1116,362 @@ public class NetworkScanForm : Form
         }
         catch { }
         return "192.168.1.0/24";
+    }
+}
+
+// ── Port scan window ─────────────────────────────────────────────────────────
+
+public class PortScanForm : Form
+{
+    private readonly string _ip;
+    private volatile bool   _cancelFlag;
+
+    private Label        statusLabel, progressLabel;
+    private ProgressBar  progressBar;
+    private DataGridView resultsGrid;
+    private Button       scanBtn, cancelBtn;
+
+    private static readonly Color BgDark  = Color.FromArgb(17,  17,  27);
+    private static readonly Color BgMid   = Color.FromArgb(30,  30,  46);
+    private static readonly Color BgPanel = Color.FromArgb(49,  50,  68);
+    private static readonly Color BgAlt   = Color.FromArgb(24,  24,  37);
+    private static readonly Color FgText  = Color.FromArgb(205, 214, 244);
+    private static readonly Color FgDim   = Color.FromArgb(166, 173, 200);
+    private static readonly Color ColBlue = Color.FromArgb(137, 180, 250);
+    private static readonly Color ColGreen= Color.FromArgb(166, 227, 161);
+    private static readonly Color ColRed  = Color.FromArgb(243, 139, 168);
+
+    private static readonly Dictionary<int, string> WellKnownPorts = new Dictionary<int, string>
+    {
+        {    7, "Echo" },
+        {    9, "Discard / Wake-on-LAN" },
+        {   20, "FTP Data Transfer" },
+        {   21, "FTP Control" },
+        {   22, "SSH / SFTP" },
+        {   23, "Telnet" },
+        {   25, "SMTP" },
+        {   37, "Time Protocol" },
+        {   43, "WHOIS" },
+        {   49, "TACACS" },
+        {   53, "DNS" },
+        {   67, "DHCP Server" },
+        {   68, "DHCP Client" },
+        {   69, "TFTP" },
+        {   70, "Gopher" },
+        {   79, "Finger" },
+        {   80, "HTTP" },
+        {   88, "Kerberos" },
+        {  102, "Microsoft Exchange (ISO-TSAP)" },
+        {  110, "POP3" },
+        {  111, "RPCbind / SunRPC" },
+        {  113, "Ident" },
+        {  119, "NNTP" },
+        {  123, "NTP" },
+        {  135, "Microsoft RPC / EPMAP" },
+        {  137, "NetBIOS Name Service" },
+        {  138, "NetBIOS Datagram Service" },
+        {  139, "NetBIOS Session Service" },
+        {  143, "IMAP" },
+        {  161, "SNMP" },
+        {  162, "SNMP Trap" },
+        {  177, "XDMCP" },
+        {  179, "BGP" },
+        {  194, "IRC" },
+        {  389, "LDAP" },
+        {  427, "SLP" },
+        {  443, "HTTPS" },
+        {  445, "SMB / Microsoft-DS" },
+        {  458, "Apple Remote Desktop" },
+        {  465, "SMTPS / SMTP over SSL" },
+        {  500, "IKE / ISAKMP (IPSec)" },
+        {  512, "rexec" },
+        {  513, "rlogin" },
+        {  514, "RSH / Syslog" },
+        {  515, "LPD / LPR Printing" },
+        {  520, "RIP" },
+        {  540, "UUCP" },
+        {  548, "AFP (Apple Filing Protocol)" },
+        {  554, "RTSP" },
+        {  563, "NNTP over SSL" },
+        {  587, "SMTP Submission" },
+        {  631, "IPP / CUPS Printing" },
+        {  636, "LDAPS" },
+        {  860, "iSCSI" },
+        {  873, "rsync" },
+        {  902, "VMware Server" },
+        {  989, "FTPS Data" },
+        {  990, "FTPS Control" },
+        {  993, "IMAPS" },
+        {  995, "POP3S" },
+        { 1080, "SOCKS Proxy" },
+        { 1194, "OpenVPN" },
+        { 1311, "Dell OpenManage HTTPS" },
+        { 1433, "Microsoft SQL Server" },
+        { 1434, "Microsoft SQL Browser" },
+        { 1512, "WINS" },
+        { 1521, "Oracle Database" },
+        { 1701, "L2TP" },
+        { 1720, "H.323 / NetMeeting" },
+        { 1723, "PPTP" },
+        { 1812, "RADIUS" },
+        { 1813, "RADIUS Accounting" },
+        { 1900, "UPnP / SSDP" },
+        { 2049, "NFS" },
+        { 2082, "cPanel HTTP" },
+        { 2083, "cPanel HTTPS" },
+        { 2086, "WHM HTTP" },
+        { 2087, "WHM HTTPS" },
+        { 3306, "MySQL" },
+        { 3389, "RDP (Remote Desktop)" },
+        { 3690, "SVN" },
+        { 4899, "Radmin" },
+        { 5000, "UPnP / Flask Dev" },
+        { 5060, "SIP" },
+        { 5061, "SIP TLS" },
+        { 5432, "PostgreSQL" },
+        { 5631, "PCAnywhere Data" },
+        { 5800, "VNC HTTP" },
+        { 5900, "VNC Server" },
+        { 6000, "X11" },
+        { 6379, "Redis" },
+        { 6667, "IRC" },
+        { 6881, "BitTorrent" },
+        { 7070, "RealAudio / RealPlayer" },
+        { 8000, "HTTP Alternate" },
+        { 8008, "HTTP Alternate" },
+        { 8080, "HTTP Proxy / Alternate" },
+        { 8443, "HTTPS Alternate" },
+        { 8888, "HTTP Dev / Jupyter" },
+        { 9200, "Elasticsearch HTTP" },
+        { 9300, "Elasticsearch Cluster" },
+        { 10000, "Webmin" },
+        { 27017, "MongoDB" },
+    };
+
+    public PortScanForm(string ip)
+    {
+        _ip = ip;
+        BuildUI();
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+        StartScan();
+    }
+
+    private void BuildUI()
+    {
+        Text            = "Port Scan  —  " + _ip;
+        Size            = new Size(560, 640);
+        MinimumSize     = new Size(480, 480);
+        BackColor       = BgMid;
+        Font            = new Font("Segoe UI", 10f);
+        FormBorderStyle = FormBorderStyle.Sizable;
+
+        Controls.Add(new Label {
+            Text = "Port Scan  —  " + _ip, ForeColor = ColBlue, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 15f, FontStyle.Bold), AutoSize = true,
+            Location = new Point(20, 14)
+        });
+
+        int y = 54;
+        scanBtn = MakeButton("Scan", 20, y, ColGreen, BgDark, 80);
+        scanBtn.Enabled = false;
+        scanBtn.Click  += (s, e) => StartScan();
+        Controls.Add(scanBtn);
+
+        cancelBtn = MakeButton("Cancel", 110, y, ColRed, BgDark, 80);
+        cancelBtn.Enabled = false;
+        cancelBtn.Click  += (s, e) => { _cancelFlag = true; statusLabel.Text = "Cancelling..."; };
+        Controls.Add(cancelBtn);
+
+        y = 96;
+        progressBar = new ProgressBar {
+            Location = new Point(20, y), Size = new Size(360, 16),
+            Minimum = 0, Maximum = 100, Value = 0,
+            Style = ProgressBarStyle.Continuous
+        };
+        Controls.Add(progressBar);
+
+        progressLabel = new Label {
+            Text = "", ForeColor = FgDim, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 9f), AutoSize = true,
+            Location = new Point(388, y)
+        };
+        Controls.Add(progressLabel);
+
+        statusLabel = new Label {
+            Text = "Starting scan...", ForeColor = FgDim, BackColor = BgDark,
+            Font = new Font("Segoe UI", 9f), TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(8, 0, 0, 0),
+            Location = new Point(20, 120), Size = new Size(516, 22)
+        };
+        Controls.Add(statusLabel);
+
+        resultsGrid = new DataGridView {
+            Location                    = new Point(20, 150),
+            Size                        = new Size(516, 440),
+            BackgroundColor             = BgDark,
+            ForeColor                   = FgText,
+            GridColor                   = BgPanel,
+            BorderStyle                 = BorderStyle.None,
+            RowHeadersVisible           = false,
+            AllowUserToAddRows          = false,
+            AllowUserToDeleteRows       = false,
+            AllowUserToResizeRows       = false,
+            ReadOnly                    = true,
+            SelectionMode               = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect                 = false,
+            Font                        = new Font("Consolas", 10f),
+            AutoSizeColumnsMode         = DataGridViewAutoSizeColumnsMode.Fill,
+            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+            ColumnHeadersHeight         = 30,
+            RowTemplate                 = { Height = 24 }
+        };
+        resultsGrid.DefaultCellStyle                        = MakeCellStyle(BgDark, FgText, BgPanel);
+        resultsGrid.AlternatingRowsDefaultCellStyle         = MakeCellStyle(BgAlt,  FgText, BgPanel);
+        resultsGrid.ColumnHeadersDefaultCellStyle.BackColor = BgPanel;
+        resultsGrid.ColumnHeadersDefaultCellStyle.ForeColor = ColBlue;
+        resultsGrid.ColumnHeadersDefaultCellStyle.Font      = new Font("Segoe UI", 10f, FontStyle.Bold);
+        resultsGrid.EnableHeadersVisualStyles               = false;
+
+        var portCol = new DataGridViewTextBoxColumn { HeaderText = "Port", Name = "port", FillWeight = 60, MinimumWidth = 60 };
+        portCol.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+        resultsGrid.Columns.Add(portCol);
+
+        var descCol = new DataGridViewTextBoxColumn { HeaderText = "Service / Description", Name = "desc", FillWeight = 300, MinimumWidth = 120 };
+        descCol.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+        resultsGrid.Columns.Add(descCol);
+
+        Controls.Add(resultsGrid);
+        Resize += (s, e) => RelayoutDynamic();
+    }
+
+    private void RelayoutDynamic()
+    {
+        int w = ClientSize.Width  - 40;
+        int h = ClientSize.Height;
+        if (w < 100) return;
+        if (resultsGrid  != null) { resultsGrid.Width = w; resultsGrid.Height = Math.Max(h - 160, 80); }
+        if (progressBar  != null)   progressBar.Width = w - 130;
+        if (statusLabel  != null)   statusLabel.Width = w;
+    }
+
+    private void StartScan()
+    {
+        resultsGrid.Rows.Clear();
+        progressBar.Value   = 0;
+        progressLabel.Text  = "";
+        _cancelFlag         = false;
+        scanBtn.Enabled     = false;
+        cancelBtn.Enabled   = true;
+        statusLabel.Text    = "Scanning " + _ip + " (ports 0 – 65535)...";
+
+        new Thread(RunScan) { IsBackground = true }.Start();
+    }
+
+    private void RunScan()
+    {
+        const int total    = 65536;
+        const int nThreads = 500;
+        const int timeout  = 300;
+        int completed = 0;
+        int openCount = 0;
+        var threads = new Thread[nThreads];
+
+        for (int t = 0; t < nThreads; t++)
+        {
+            int ti = t;
+            threads[t] = new Thread(() =>
+            {
+                for (int port = ti; port < total && !_cancelFlag; port += nThreads)
+                {
+                    if (IsPortOpen(_ip, port, timeout))
+                    {
+                        Interlocked.Increment(ref openCount);
+                        string desc = WellKnownPorts.ContainsKey(port) ? WellKnownPorts[port] : "—";
+                        AddResult(port, desc);
+                    }
+                    int done = Interlocked.Increment(ref completed);
+                    if (done % 256 == 0) UpdateProgress(done, total);
+                }
+            }) { IsBackground = true };
+            threads[t].Start();
+        }
+
+        foreach (var th in threads) th.Join();
+
+        if (!IsDisposed)
+            Invoke(new Action(() => OnScanFinished(openCount)));
+    }
+
+    private static bool IsPortOpen(string ip, int port, int timeoutMs)
+    {
+        try
+        {
+            using (var client = new TcpClient())
+            {
+                var result  = client.BeginConnect(ip, port, null, null);
+                bool open   = result.AsyncWaitHandle.WaitOne(timeoutMs, false);
+                if (!open || !client.Connected) return false;
+                client.EndConnect(result);
+                return true;
+            }
+        }
+        catch { return false; }
+    }
+
+    private void AddResult(int port, string desc)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired) { Invoke(new Action(() => AddResult(port, desc))); return; }
+        resultsGrid.Rows.Add(port, desc);
+        // Keep rows sorted by port number
+        SortByPort();
+    }
+
+    private void SortByPort()
+    {
+        var rows = new List<object[]>();
+        foreach (DataGridViewRow r in resultsGrid.Rows)
+            rows.Add(new object[] { r.Cells["port"].Value, r.Cells["desc"].Value });
+        rows.Sort((a, b) => ((int)a[0]).CompareTo((int)b[0]));
+        resultsGrid.Rows.Clear();
+        foreach (var r in rows) resultsGrid.Rows.Add(r);
+    }
+
+    private void UpdateProgress(int done, int total)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired) { Invoke(new Action(() => UpdateProgress(done, total))); return; }
+        progressBar.Value  = Math.Min((int)((long)done * 100 / total), 100);
+        progressLabel.Text = done + " / " + total;
+    }
+
+    private void OnScanFinished(int openCount)
+    {
+        progressBar.Value  = 100;
+        progressLabel.Text = "65536 / 65536";
+        statusLabel.Text   = (_cancelFlag ? "Scan cancelled. " : "Scan complete. ") +
+                             openCount + " open port" + (openCount == 1 ? "" : "s") + " found.";
+        scanBtn.Enabled   = true;
+        cancelBtn.Enabled = false;
+    }
+
+    private DataGridViewCellStyle MakeCellStyle(Color back, Color fore, Color selBack)
+    {
+        return new DataGridViewCellStyle {
+            BackColor = back, ForeColor = fore,
+            SelectionBackColor = selBack, SelectionForeColor = fore,
+            Alignment = DataGridViewContentAlignment.MiddleCenter
+        };
+    }
+
+    private Button MakeButton(string text, int x, int y, Color bg, Color fg, int width = 72)
+    {
+        var b = new Button {
+            Text = text, Location = new Point(x, y), Size = new Size(width, 30),
+            BackColor = bg, ForeColor = fg, FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10f, FontStyle.Bold), Cursor = Cursors.Hand
+        };
+        b.FlatAppearance.BorderSize = 0;
+        return b;
     }
 }
