@@ -217,6 +217,18 @@ class PingApp:
         seq = 0
         while not self.stop_flag:
             seq += 1
+            try:
+                timeout_ms = int(self.timeout_var.get())
+                if timeout_ms < 1:
+                    timeout_ms = 1000
+            except ValueError:
+                timeout_ms = 1000
+            try:
+                size = int(self.size_var.get())
+                if not (32 <= size <= 65535):
+                    size = 32
+            except ValueError:
+                size = 32
             cmd = ["ping", "-n", "1", "-w", str(timeout_ms), "-l", str(size), ip]
             if no_frag:
                 cmd.insert(-1, "-f")

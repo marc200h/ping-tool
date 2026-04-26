@@ -32,6 +32,10 @@ public class PingTool : Form
     private System.Windows.Forms.Timer refreshTimer;
     private static readonly object _logLock = new object();
 
+    private volatile int _currentTimeout  = 1000;
+    private volatile int _currentSize     = 32;
+    private volatile int _currentInterval = 1000;
+
     private TextBox      ipEntry;
     private Button       addBtn, removeBtn, scanWindowBtn;
     private DataGridView grid;
@@ -118,6 +122,9 @@ public class PingTool : Form
             BackColor   = BgPanel, ForeColor = FgText,
             BorderStyle = BorderStyle.FixedSingle, Text = "1000"
         };
+        timeoutEntry.TextChanged += (s, e) => {
+            int v; if (int.TryParse(timeoutEntry.Text.Trim(), out v) && v >= 1) _currentTimeout = v;
+        };
         Controls.Add(timeoutEntry);
 
         Controls.Add(MakeLabel("Interval (ms):", 220, y));
@@ -133,8 +140,10 @@ public class PingTool : Form
             Font = new Font("Segoe UI", 9f, FontStyle.Bold), AutoSize = true,
             Location = new Point(568, y + 4)
         };
-        intervalSlider.ValueChanged += (s, e) =>
+        intervalSlider.ValueChanged += (s, e) => {
             intervalValueLabel.Text = intervalSlider.Value + " ms";
+            _currentInterval = intervalSlider.Value;
+        };
         Controls.Add(intervalSlider);
         Controls.Add(intervalValueLabel);
 
@@ -146,6 +155,9 @@ public class PingTool : Form
             Location    = new Point(130, y - 2), Size = new Size(70, 26),
             BackColor   = BgPanel, ForeColor = FgText,
             BorderStyle = BorderStyle.FixedSingle, Text = "32"
+        };
+        sizeEntry.TextChanged += (s, e) => {
+            int v; if (int.TryParse(sizeEntry.Text.Trim(), out v) && v >= 32 && v <= 65535) _currentSize = v;
         };
         Controls.Add(sizeEntry);
 
@@ -343,19 +355,14 @@ public class PingTool : Form
 
     private void LaunchDevice(DeviceStats d)
     {
-        int timeout;
-        if (!int.TryParse(timeoutEntry.Text.Trim(), out timeout) || timeout < 1) timeout = 1000;
-        int size;
-        if (!int.TryParse(sizeEntry.Text.Trim(), out size) || size < 32 || size > 65535) size = 32;
         bool dontFrag   = dontFragCheck.Checked;
         bool logMissed  = logMissedCheck.Checked;
         bool continuous = unlimitedCheck.Checked;
         int  count      = continuous ? 0 : int.Parse(countCombo.SelectedItem.ToString());
-        int  interval   = intervalSlider.Value;
 
         d.StopFlag   = false;
         var cap      = d;
-        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size, dontFrag, logMissed))
+        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, dontFrag, logMissed))
             { IsBackground = true };
         d.PingThread.Start();
     }
@@ -404,11 +411,8 @@ public class PingTool : Form
     {
         startBtn.Enabled       = ready;
         stopBtn.Enabled        = !ready;
-        timeoutEntry.Enabled   = ready;
-        sizeEntry.Enabled      = ready;
         dontFragCheck.Enabled  = ready;
         logMissedCheck.Enabled = ready;
-        intervalSlider.Enabled = ready;
         unlimitedCheck.Enabled = ready;
         countCombo.Enabled     = ready && !unlimitedCheck.Checked;
         ipEntry.Enabled        = true;
@@ -449,16 +453,21 @@ public class PingTool : Form
 
     // ── Ping loop ────────────────────────────────────────────────────────────
 
-    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size, bool dontFrag, bool logMissed)
+    private void PingLoop(DeviceStats d, int count, bool continuous, bool dontFrag, bool logMissed)
     {
-        var    pinger  = new Ping();
-        var    options = new PingOptions { DontFragment = dontFrag };
-        byte[] buffer  = new byte[size];
-        int    seq     = 0;
+        var    pinger     = new Ping();
+        var    options    = new PingOptions { DontFragment = dontFrag };
+        int    cachedSize = _currentSize;
+        byte[] buffer     = new byte[cachedSize];
+        int    seq        = 0;
 
         while (!d.StopFlag)
         {
             seq++;
+            int timeout  = _currentTimeout;
+            int interval = _currentInterval;
+            int size     = _currentSize;
+            if (size != cachedSize) { buffer = new byte[size]; cachedSize = size; }
             try
             {
                 PingReply reply = pinger.Send(d.IP, timeout, buffer, options);
