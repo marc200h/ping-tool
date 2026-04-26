@@ -123,10 +123,15 @@ class PingApp:
     def _log_missed_ping(self, ip):
         now = datetime.now()
         log_dir = os.path.dirname(os.path.abspath(__file__))
-        log_path = os.path.join(log_dir, f"missed_pings_{now.strftime('%Y-%m-%d')}.csv")
+        base = os.path.join(log_dir, f"missed_pings_{now.strftime('%Y-%m-%d')}")
         with self._log_lock:
-            write_header = not os.path.exists(log_path)
-            with open(log_path, "a", newline="") as f:
+            path = base + ".csv"
+            n = 2
+            while os.path.exists(path) and os.path.getsize(path) >= 20 * 1024 * 1024:
+                path = f"{base}_{n}.csv"
+                n += 1
+            write_header = not os.path.exists(path)
+            with open(path, "a", newline="") as f:
                 if write_header:
                     f.write("Timestamp,IP Address\n")
                 f.write(f"{now.strftime('%Y-%m-%d %H:%M:%S')},{ip}\n")

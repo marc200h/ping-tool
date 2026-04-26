@@ -423,12 +423,19 @@ public class PingTool : Form
     {
         try
         {
-            string date    = DateTime.Now.ToString("yyyy-MM-dd");
-            string time    = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            string dir     = Path.GetDirectoryName(Application.ExecutablePath);
-            string path    = Path.Combine(dir, "missed_pings_" + date + ".csv");
+            string date = DateTime.Now.ToString("yyyy-MM-dd");
+            string time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string dir  = Path.GetDirectoryName(Application.ExecutablePath);
+            string base_ = Path.Combine(dir, "missed_pings_" + date);
             lock (_logLock)
             {
+                string path = base_ + ".csv";
+                int n = 2;
+                while (File.Exists(path) && new FileInfo(path).Length >= 20L * 1024 * 1024)
+                {
+                    path = base_ + "_" + n + ".csv";
+                    n++;
+                }
                 bool newFile = !File.Exists(path);
                 using (var sw = new StreamWriter(path, append: true))
                 {
