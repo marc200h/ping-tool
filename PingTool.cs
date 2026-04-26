@@ -38,6 +38,7 @@ public class PingTool : Form
     private TextBox      timeoutEntry;
     private TextBox      sizeEntry;
     private CheckBox     dontFragCheck;
+    private CheckBox     logMissedCheck;
     private TrackBar     intervalSlider;
     private Label        intervalValueLabel;
     private ComboBox     countCombo;
@@ -160,6 +161,13 @@ public class PingTool : Form
             Location = new Point(330, y + 2), Cursor = Cursors.Hand
         };
         Controls.Add(dontFragCheck);
+
+        logMissedCheck = new CheckBox {
+            Text = "Log missed pings", ForeColor = FgText, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 10f), AutoSize = true, Checked = true,
+            Location = new Point(510, y + 2), Cursor = Cursors.Hand
+        };
+        Controls.Add(logMissedCheck);
 
         // ── Row 4: Count + Unlimited + Action buttons ────────
         y = 176;
@@ -339,14 +347,15 @@ public class PingTool : Form
         if (!int.TryParse(timeoutEntry.Text.Trim(), out timeout) || timeout < 1) timeout = 1000;
         int size;
         if (!int.TryParse(sizeEntry.Text.Trim(), out size) || size < 32 || size > 65535) size = 32;
-        bool dontFrag  = dontFragCheck.Checked;
+        bool dontFrag   = dontFragCheck.Checked;
+        bool logMissed  = logMissedCheck.Checked;
         bool continuous = unlimitedCheck.Checked;
         int  count      = continuous ? 0 : int.Parse(countCombo.SelectedItem.ToString());
         int  interval   = intervalSlider.Value;
 
         d.StopFlag   = false;
         var cap      = d;
-        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size, dontFrag))
+        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size, dontFrag, logMissed))
             { IsBackground = true };
         d.PingThread.Start();
     }
@@ -398,6 +407,7 @@ public class PingTool : Form
         timeoutEntry.Enabled   = ready;
         sizeEntry.Enabled      = ready;
         dontFragCheck.Enabled  = ready;
+        logMissedCheck.Enabled = ready;
         intervalSlider.Enabled = ready;
         unlimitedCheck.Enabled = ready;
         countCombo.Enabled     = ready && !unlimitedCheck.Checked;
@@ -432,7 +442,7 @@ public class PingTool : Form
 
     // ── Ping loop ────────────────────────────────────────────────────────────
 
-    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size, bool dontFrag)
+    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size, bool dontFrag, bool logMissed)
     {
         var    pinger  = new Ping();
         var    options = new PingOptions { DontFragment = dontFrag };
@@ -456,9 +466,9 @@ public class PingTool : Form
                     }
                     else { d.LastOnline = false; }
                 }
-                if (!d.LastOnline) LogMissedPing(d.IP);
+                if (!d.LastOnline && logMissed) LogMissedPing(d.IP);
             }
-            catch { lock (d.Lock) { d.Sent++; d.LastOnline = false; } LogMissedPing(d.IP); }
+            catch { lock (d.Lock) { d.Sent++; d.LastOnline = false; } if (logMissed) LogMissedPing(d.IP); }
 
             if (!continuous && seq >= count) { d.StopFlag = true; break; }
 

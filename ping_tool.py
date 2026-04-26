@@ -67,6 +67,9 @@ class PingApp:
         self.no_frag_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(input_frame, text="Don't Fragment (-f)", variable=self.no_frag_var).grid(
             row=1, column=3, sticky="w", padx=(24, 0), pady=(6, 0))
+        self.log_missed_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(input_frame, text="Log missed pings", variable=self.log_missed_var).grid(
+            row=1, column=4, sticky="w", padx=(24, 0), pady=(6, 0))
 
         # Buttons
         btn_frame = tk.Frame(self.root, bg="#1e1e2e")
@@ -182,8 +185,9 @@ class PingApp:
         self.stop_btn.configure(state=tk.NORMAL)
 
         no_frag = self.no_frag_var.get()
+        log_missed = self.log_missed_var.get()
         self.ping_thread = threading.Thread(
-            target=self._run_ping, args=(ip, count, continuous, timeout, size, no_frag), daemon=True
+            target=self._run_ping, args=(ip, count, continuous, timeout, size, no_frag, log_missed), daemon=True
         )
         self.ping_thread.start()
 
@@ -191,7 +195,7 @@ class PingApp:
         self.stop_flag = True
         self.status_var.set("Stopping...")
 
-    def _run_ping(self, ip, count, continuous, timeout_ms, size, no_frag):
+    def _run_ping(self, ip, count, continuous, timeout_ms, size, no_frag, log_missed):
         sent = 0
         received = 0
         rtts = []
@@ -231,7 +235,8 @@ class PingApp:
             else:
                 line = f"  Request timeout  seq={seq}\n"
                 self.root.after(0, self._write, line, "failure")
-                self._log_missed_ping(ip)
+                if log_missed:
+                    self._log_missed_ping(ip)
 
             loss = round((sent - received) / sent * 100) if sent else 0
             avg_rtt = round(sum(rtts) / len(rtts)) if rtts else 0
