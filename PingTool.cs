@@ -35,6 +35,7 @@ public class PingTool : Form
     private Button       addBtn, removeBtn, scanWindowBtn;
     private DataGridView grid;
     private TextBox      timeoutEntry;
+    private TextBox      sizeEntry;
     private TrackBar     intervalSlider;
     private Label        intervalValueLabel;
     private ComboBox     countCombo;
@@ -68,8 +69,8 @@ public class PingTool : Form
     private void BuildUI()
     {
         Text            = "Net View Systems Network Tool";
-        Size            = new Size(700, 580);
-        MinimumSize     = new Size(600, 440);
+        Size            = new Size(700, 622);
+        MinimumSize     = new Size(600, 482);
         BackColor       = BgMid;
         Font            = new Font("Segoe UI", 10f);
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -134,8 +135,25 @@ public class PingTool : Form
         Controls.Add(intervalSlider);
         Controls.Add(intervalValueLabel);
 
-        // ── Row 3: Count + Unlimited + Action buttons ────────
+        // ── Row 3: Size ──────────────────────────────────────
         y = 134;
+        Controls.Add(MakeLabel("Size (bytes):", 20, y));
+
+        sizeEntry = new TextBox {
+            Location    = new Point(130, y - 2), Size = new Size(70, 26),
+            BackColor   = BgPanel, ForeColor = FgText,
+            BorderStyle = BorderStyle.FixedSingle, Text = "32"
+        };
+        Controls.Add(sizeEntry);
+
+        Controls.Add(new Label {
+            Text = "(32 – 65535)", ForeColor = FgDim, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 9f), AutoSize = true,
+            Location = new Point(210, y + 4)
+        });
+
+        // ── Row 4: Count + Unlimited + Action buttons ────────
+        y = 176;
         Controls.Add(MakeLabel("Count:", 20, y));
 
         countCombo = new ComboBox {
@@ -173,13 +191,13 @@ public class PingTool : Form
             Text = "No devices added.", ForeColor = FgDim, BackColor = BgDark,
             Font = new Font("Segoe UI", 9f), TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(8, 0, 0, 0),
-            Location = new Point(20, 172), Size = new Size(656, 22)
+            Location = new Point(20, 214), Size = new Size(656, 22)
         };
         Controls.Add(statusLabel);
 
         // ── Device grid ──────────────────────────────────────
         grid = new DataGridView {
-            Location                    = new Point(20, 200),
+            Location                    = new Point(20, 242),
             Size                        = new Size(656, 326),
             BackgroundColor             = BgDark,
             ForeColor                   = FgText,
@@ -252,7 +270,7 @@ public class PingTool : Form
     {
         int w = ClientSize.Width - 40;
         if (w < 100) return;
-        if (grid        != null) { grid.Width = w; grid.Height = ClientSize.Height - 234; }
+        if (grid        != null) { grid.Width = w; grid.Height = ClientSize.Height - 276; }
         if (statusLabel != null)   statusLabel.Width = w;
     }
 
@@ -310,13 +328,15 @@ public class PingTool : Form
     {
         int timeout;
         if (!int.TryParse(timeoutEntry.Text.Trim(), out timeout) || timeout < 1) timeout = 1000;
+        int size;
+        if (!int.TryParse(sizeEntry.Text.Trim(), out size) || size < 32 || size > 65535) size = 32;
         bool continuous = unlimitedCheck.Checked;
         int  count      = continuous ? 0 : int.Parse(countCombo.SelectedItem.ToString());
         int  interval   = intervalSlider.Value;
 
         d.StopFlag   = false;
         var cap      = d;
-        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval))
+        d.PingThread = new Thread(() => PingLoop(cap, count, continuous, timeout, interval, size))
             { IsBackground = true };
         d.PingThread.Start();
     }
@@ -366,6 +386,7 @@ public class PingTool : Form
         startBtn.Enabled       = ready;
         stopBtn.Enabled        = !ready;
         timeoutEntry.Enabled   = ready;
+        sizeEntry.Enabled      = ready;
         intervalSlider.Enabled = ready;
         unlimitedCheck.Enabled = ready;
         countCombo.Enabled     = ready && !unlimitedCheck.Checked;
@@ -377,11 +398,11 @@ public class PingTool : Form
 
     // ── Ping loop ────────────────────────────────────────────────────────────
 
-    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval)
+    private void PingLoop(DeviceStats d, int count, bool continuous, int timeout, int interval, int size)
     {
         var    pinger  = new Ping();
         var    options = new PingOptions { DontFragment = true };
-        byte[] buffer  = new byte[32];
+        byte[] buffer  = new byte[size];
         int    seq     = 0;
 
         while (!d.StopFlag)
