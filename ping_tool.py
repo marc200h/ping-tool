@@ -233,8 +233,9 @@ class PingApp:
             if rtt_match:
                 rtt = int(rtt_match.group(1))
                 ttl = ttl_match.group(1) if ttl_match else "?"
-                rtts.append(rtt)
                 received += 1
+                if received > 1:
+                    rtts.append(rtt)
                 line = f"  Reply from {ip}: seq={seq}  time={rtt}ms  TTL={ttl}\n"
                 self.root.after(0, self._write, line, "success")
             else:

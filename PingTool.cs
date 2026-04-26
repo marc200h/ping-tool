@@ -17,15 +17,15 @@ public class PingTool : Form
     {
         public readonly object Lock = new object();
         public string IP;
-        public int    Sent, Received;
+        public int    Sent, Received, RttCount;
         public long   RttSum;
-        public bool   LastOnline;
+        public bool   LastOnline, FirstReceived;
         public volatile bool StopFlag;
         public Thread PingThread;
 
         public bool Running { get { return PingThread != null && PingThread.IsAlive; } }
         public int  Loss    { get { return Sent > 0 ? (int)Math.Round((Sent - Received) * 100.0 / Sent) : 0; } }
-        public long AvgRtt  { get { return Received > 0 ? RttSum / Received : 0; } }
+        public long AvgRtt  { get { return RttCount > 0 ? RttSum / RttCount : 0; } }
     }
 
     private readonly List<DeviceStats> devices = new List<DeviceStats>();
@@ -395,7 +395,7 @@ public class PingTool : Form
         foreach (var d in devices)
             if (d.Running) { statusLabel.Text = "Stop monitoring before clearing stats."; return; }
         foreach (var d in devices)
-            lock (d.Lock) { d.Sent = 0; d.Received = 0; d.RttSum = 0; d.LastOnline = false; }
+            lock (d.Lock) { d.Sent = 0; d.Received = 0; d.RttSum = 0; d.RttCount = 0; d.LastOnline = false; d.FirstReceived = false; }
         RefreshGrid();
         statusLabel.Text = "Stats cleared.";
     }
@@ -468,7 +468,8 @@ public class PingTool : Form
                     if (reply.Status == IPStatus.Success)
                     {
                         d.Received++;
-                        d.RttSum    += reply.RoundtripTime;
+                        if (d.FirstReceived) { d.RttSum += reply.RoundtripTime; d.RttCount++; }
+                        else                   d.FirstReceived = true;
                         d.LastOnline = true;
                     }
                     else { d.LastOnline = false; }
