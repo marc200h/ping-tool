@@ -628,8 +628,8 @@ public class NetworkScanForm : Form
     private void BuildUI()
     {
         Text            = "Network Scan";
-        Size            = new Size(540, 600);
-        MinimumSize     = new Size(420, 460);
+        Size            = new Size(540, 720);
+        MinimumSize     = new Size(420, 580);
         BackColor       = BgMid;
         Font            = new Font("Segoe UI", 10f);
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -1032,7 +1032,7 @@ public class NetworkScanForm : Form
         int w = ClientSize.Width - 40;
         int h = ClientSize.Height;
         if (w < 100) return;
-        if (resultsGrid        != null) { resultsGrid.Width = w; resultsGrid.Height = h - 290; }
+        if (resultsGrid        != null) { resultsGrid.Width = w; resultsGrid.Height = Math.Max(h - 320, 80); }
         if (progressBar        != null)   progressBar.Width  = w - 130;
         if (statusLabel        != null)   statusLabel.Width  = w;
         if (selectAllBtn       != null)   selectAllBtn.Top        = resultsGrid.Bottom + 8;
